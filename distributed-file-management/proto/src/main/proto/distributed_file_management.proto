@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package com.example.nimbus.v1;
+
+option java_package = "com.example.nimbus.v1";
+option java_multiple_files = true;
+option java_outer_classname = "DistributedFileManagementProto";
+
+// Shared domain enums
+enum TaskLifecycle {
+  TASK_LIFECYCLE_UNSPECIFIED = 0;
+  QUEUED = 1;
+  RUNNING = 2;
+  COMPLETED = 3;
+  FAILED = 4;
+}
+
+enum WorkerState {
+  WORKER_STATE_UNSPECIFIED = 0;
+  AVAILABLE = 1;
+  BUSY = 2;
+  UNHEALTHY = 3;
+}
+
+// Shared domain payloads
+message FileMetadata {
+  string filename = 1;
+  int64 size = 2;
+  string content_type = 3;
+}
+
+message FileChunk {
+  int32 chunk_index = 1;
+  bytes data = 2;
+}
+
+message TaskError {
+  string code = 1;
+  string message = 2;
+}
+
+message TaskConfiguration {
+  map<string, string> settings = 1;
+}
+
+message TaskResultData {
+  map<string, string> values = 1;
+}
+
+// -----------------------------------------------------------------------------
+// External/public API exposed to clients through the Gateway
+// -----------------------------------------------------------------------------
+message GatewayUploadFileRequest {
+  oneof payload {
+    FileMetadata metadata = 1;
+    FileChunk chunk = 2;
+  }
+}
+
+message GatewayUploadFileResponse {
+  string file_id = 1;
+  string filename = 2;
+  int64 size = 3;
+}
+
+message GatewayDownloadFileRequest {
+  string file_id = 1;
+}
+
+message GatewayDownloadFileResponse {
+  oneof payload {
+    FileMetadata metadata = 1;
+    FileChunk chunk = 2;
+  }
+}
+
+message GatewaySubmitTaskRequest {
+  string file_id = 1;
+  string processor_type = 2;
+  TaskConfiguration configuration = 3;
+}
+
+message GatewaySubmitTaskResponse {
+  string task_id = 1;
+  TaskLifecycle status = 2;
+}
+
+message GatewayGetTaskStatusRequest {
+  string task_id = 1;
+}
+
+message GatewayGetTaskStatusResponse {
+  string task_id = 1;
+  TaskLifecycle status = 2;
+  string worker_id = 3;
+  int32 attempt_count = 4;
+  TaskResultData result = 5;
+  TaskError error = 6;
+}
+
+service GatewayService {
+  rpc UploadFile(stream GatewayUploadFileRequest) returns (GatewayUploadFileResponse);
+  rpc DownloadFile(GatewayDownloadFileRequest) returns (stream GatewayDownloadFileResponse);
+  rpc SubmitTask(GatewaySubmitTaskRequest) returns (GatewaySubmitTaskResponse);
+  rpc GetTaskStatus(GatewayGetTaskStatusRequest) returns (GatewayGetTaskStatusResponse);
+}
+
+// -----------------------------------------------------------------------------
+// Internal API between Gateway and Scheduler
+// -----------------------------------------------------------------------------
+message SchedulerSubmitTaskRequest {
+  string request_id = 1;
+  string file_id = 2;
+  string processor_type = 3;
+  TaskConfiguration configuration = 4;
+}
+
+message SchedulerSubmitTaskResponse {
+  string task_id = 1;
+  TaskLifecycle status = 2;
+  string request_id = 3;
+}
+
+message SchedulerGetTaskStatusRequest {
+  string task_id = 1;
+}
+
+message SchedulerGetTaskStatusResponse {
+  string task_id = 1;
+  TaskLifecycle status = 2;
+  string worker_id = 3;
+  int32 attempt_count = 4;
+  TaskResultData result = 5;
+  TaskError error = 6;
+}
+
+service SchedulerService {
+  rpc SubmitTask(SchedulerSubmitTaskRequest) returns (SchedulerSubmitTaskResponse);
+  rpc GetTaskStatus(SchedulerGetTaskStatusRequest) returns (SchedulerGetTaskStatusResponse);
+}
+
+// -----------------------------------------------------------------------------
+// Internal API between Scheduler and Worker
+// -----------------------------------------------------------------------------
+message WorkerRegisterRequest {
+  string worker_id = 1;
+  repeated string supported_processor_types = 2;
+  int32 capacity = 3;
+  string host = 4;
+}
+
+message WorkerRegisterResponse {
+  string worker_id = 1;
+  bool accepted = 2;
+  WorkerState state = 3;
+}
+
+message WorkerHeartbeatRequest {
+  string worker_id = 1;
+  WorkerState status = 2;
+  string current_task_id = 3;
+}
+
+message WorkerHeartbeatResponse {
+  bool accepted = 1;
+}
+
+message WorkerTaskAssignment {
+  string task_id = 1;
+  string file_id = 2;
+  string processor_type = 3;
+  int32 attempt = 4;
+  int32 max_retries = 5;
+  TaskConfiguration configuration = 6;
+}
+
+message WorkerAssignTaskResponse {
+  bool accepted = 1;
+}
+
+message WorkerTaskResult {
+  string task_id = 1;
+  string worker_id = 2;
+  bool success = 3;
+  oneof outcome {
+    TaskResultData result = 4;
+    TaskError error = 5;
+  }
+}
+
+message WorkerTaskResultAck {
+  string task_id = 1;
+  bool accepted = 2;
+}
+
+service WorkerService {
+  rpc RegisterWorker(WorkerRegisterRequest) returns (WorkerRegisterResponse);
+  rpc Heartbeat(WorkerHeartbeatRequest) returns (WorkerHeartbeatResponse);
+  rpc AssignTask(WorkerTaskAssignment) returns (WorkerAssignTaskResponse);
+  rpc ReportTaskResult(WorkerTaskResult) returns (WorkerTaskResultAck);
+}
