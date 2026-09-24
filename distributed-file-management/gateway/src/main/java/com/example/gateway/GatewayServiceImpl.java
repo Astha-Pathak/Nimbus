@@ -6,12 +6,18 @@ import com.example.nimbus.v1.FileMetadata;
 import com.example.nimbus.v1.GatewayDownloadFileRequest;
 import com.example.nimbus.v1.GatewayDownloadFileResponse;
 import com.example.nimbus.v1.GatewayServiceGrpc;
+import com.example.nimbus.v1.GatewaySubmitTaskRequest;
+import com.example.nimbus.v1.GatewaySubmitTaskResponse;
 import com.example.nimbus.v1.GatewayUploadFileRequest;
 import com.example.nimbus.v1.GatewayUploadFileResponse;
+import com.example.nimbus.v1.SchedulerSubmitTaskRequest;
+import com.example.nimbus.v1.SchedulerSubmitTaskResponse;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
@@ -27,15 +33,24 @@ import java.util.concurrent.atomic.AtomicReference;
 public class GatewayServiceImpl extends GatewayServiceGrpc.GatewayServiceImplBase {
 
     private final FileStorage fileStorage;
+    private final SchedulerClient schedulerClient;
     private final int chunkSizeBytes;
 
     public GatewayServiceImpl(FileStorage fileStorage) {
-        this(fileStorage, 64 * 1024);
+        this(fileStorage, null, 64 * 1024);
     }
 
     public GatewayServiceImpl(FileStorage fileStorage,
             @Value("${gateway.file-transfer.chunk-size:65536}") int chunkSizeBytes) {
+        this(fileStorage, null, chunkSizeBytes);
+    }
+
+    @Autowired
+    public GatewayServiceImpl(FileStorage fileStorage,
+            SchedulerClient schedulerClient,
+            @Value("${gateway.file-transfer.chunk-size:65536}") int chunkSizeBytes) {
         this.fileStorage = fileStorage;
+        this.schedulerClient = schedulerClient;
         this.chunkSizeBytes = Math.max(1, chunkSizeBytes);
     }
 
@@ -92,6 +107,62 @@ public class GatewayServiceImpl extends GatewayServiceGrpc.GatewayServiceImplBas
         } catch (IOException e) {
             responseObserver.onError(Status.INTERNAL
                     .withDescription("Unable to load file metadata")
+                    .withCause(e)
+                    .asRuntimeException());
+        }
+    }
+
+    @Override
+    public void submitTask(GatewaySubmitTaskRequest request,
+            StreamObserver<GatewaySubmitTaskResponse> responseObserver) {
+        if (request == null) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Submit task request must not be null")
+                    .asRuntimeException());
+            return;
+        }
+
+        if (request.getFileId() == null || request.getFileId().isBlank()) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("File ID must not be blank")
+                    .asRuntimeException());
+            return;
+        }
+
+        if (request.getProcessorType() == null || request.getProcessorType().isBlank()) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Processor type must not be blank")
+                    .asRuntimeException());
+            return;
+        }
+
+        if (schedulerClient == null) {
+            responseObserver.onError(Status.UNAVAILABLE
+                    .withDescription("Scheduler gRPC client is not configured")
+                    .asRuntimeException());
+            return;
+        }
+
+        String requestId = java.util.UUID.randomUUID().toString();
+        SchedulerSubmitTaskRequest schedulerRequest = SchedulerSubmitTaskRequest.newBuilder()
+                .setRequestId(requestId)
+                .setFileId(request.getFileId().trim())
+                .setProcessorType(request.getProcessorType().trim())
+                .setConfiguration(request.getConfiguration())
+                .build();
+
+        try {
+            SchedulerSubmitTaskResponse schedulerResponse = schedulerClient.submitTask(schedulerRequest);
+            responseObserver.onNext(GatewaySubmitTaskResponse.newBuilder()
+                    .setTaskId(schedulerResponse.getTaskId())
+                    .setStatus(schedulerResponse.getStatus())
+                    .build());
+            responseObserver.onCompleted();
+        } catch (StatusRuntimeException e) {
+            responseObserver.onError(e);
+        } catch (RuntimeException e) {
+            responseObserver.onError(Status.INTERNAL
+                    .withDescription("Scheduler task submission failed")
                     .withCause(e)
                     .asRuntimeException());
         }

@@ -5,9 +5,15 @@ import com.example.nimbus.v1.FileChunk;
 import com.example.nimbus.v1.FileMetadata;
 import com.example.nimbus.v1.GatewayDownloadFileRequest;
 import com.example.nimbus.v1.GatewayDownloadFileResponse;
+import com.example.nimbus.v1.GatewaySubmitTaskRequest;
+import com.example.nimbus.v1.GatewaySubmitTaskResponse;
 import com.example.nimbus.v1.GatewayUploadFileRequest;
 import com.example.nimbus.v1.GatewayUploadFileResponse;
+import com.example.nimbus.v1.SchedulerSubmitTaskRequest;
+import com.example.nimbus.v1.SchedulerSubmitTaskResponse;
+import com.example.nimbus.v1.TaskConfiguration;
 import com.google.protobuf.ByteString;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Test;
@@ -27,6 +33,105 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class GatewayServiceImplTest {
+
+    @Test
+    void shouldSubmitTaskByForwardingToScheduler() {
+        SchedulerClient schedulerClient = mock(SchedulerClient.class);
+        when(schedulerClient.submitTask(any(SchedulerSubmitTaskRequest.class))).thenReturn(
+                SchedulerSubmitTaskResponse.newBuilder()
+                        .setTaskId("task-123")
+                        .setStatus(com.example.nimbus.v1.TaskLifecycle.QUEUED)
+                        .setRequestId("req-456")
+                        .build());
+
+        FileStorage fileStorage = mock(FileStorage.class);
+        GatewayServiceImpl service = new GatewayServiceImpl(fileStorage, schedulerClient, 65536);
+        StreamObserver<GatewaySubmitTaskResponse> responseObserver = mock(StreamObserver.class);
+
+        service.submitTask(GatewaySubmitTaskRequest.newBuilder()
+                        .setFileId("file-123")
+                        .setProcessorType("ocr")
+                        .setConfiguration(TaskConfiguration.newBuilder()
+                                .putSettings("mode", "fast")
+                                .build())
+                        .build(),
+                responseObserver);
+
+        ArgumentCaptor<SchedulerSubmitTaskRequest> schedulerRequestCaptor = ArgumentCaptor.forClass(SchedulerSubmitTaskRequest.class);
+        verify(schedulerClient).submitTask(schedulerRequestCaptor.capture());
+        SchedulerSubmitTaskRequest actualRequest = schedulerRequestCaptor.getValue();
+        assertEquals("file-123", actualRequest.getFileId());
+        assertEquals("ocr", actualRequest.getProcessorType());
+        assertEquals("fast", actualRequest.getConfiguration().getSettingsMap().get("mode"));
+        assertFalse(actualRequest.getRequestId().isBlank());
+
+        ArgumentCaptor<GatewaySubmitTaskResponse> responseCaptor = ArgumentCaptor.forClass(GatewaySubmitTaskResponse.class);
+        verify(responseObserver).onNext(responseCaptor.capture());
+        verify(responseObserver).onCompleted();
+
+        GatewaySubmitTaskResponse response = responseCaptor.getValue();
+        assertEquals("task-123", response.getTaskId());
+        assertEquals(com.example.nimbus.v1.TaskLifecycle.QUEUED, response.getStatus());
+    }
+
+    @Test
+    void shouldMapSchedulerResponseBackToGatewayResponse() {
+        SchedulerClient schedulerClient = mock(SchedulerClient.class);
+        when(schedulerClient.submitTask(any(SchedulerSubmitTaskRequest.class))).thenReturn(
+                SchedulerSubmitTaskResponse.newBuilder()
+                        .setTaskId("task-abc")
+                        .setStatus(com.example.nimbus.v1.TaskLifecycle.QUEUED)
+                        .setRequestId("req-xyz")
+                        .build());
+
+        GatewayServiceImpl service = new GatewayServiceImpl(mock(FileStorage.class), schedulerClient, 65536);
+        StreamObserver<GatewaySubmitTaskResponse> responseObserver = mock(StreamObserver.class);
+
+        service.submitTask(GatewaySubmitTaskRequest.newBuilder()
+                        .setFileId("file-abc")
+                        .setProcessorType("ocr")
+                        .build(),
+                responseObserver);
+
+        ArgumentCaptor<GatewaySubmitTaskResponse> responseCaptor = ArgumentCaptor.forClass(GatewaySubmitTaskResponse.class);
+        verify(responseObserver).onNext(responseCaptor.capture());
+        GatewaySubmitTaskResponse response = responseCaptor.getValue();
+        assertEquals("task-abc", response.getTaskId());
+        assertEquals(com.example.nimbus.v1.TaskLifecycle.QUEUED, response.getStatus());
+    }
+
+    @Test
+    void shouldPropagateSchedulerCommunicationFailure() {
+        SchedulerClient schedulerClient = mock(SchedulerClient.class);
+        when(schedulerClient.submitTask(any(SchedulerSubmitTaskRequest.class)))
+                .thenThrow(Status.UNAVAILABLE.withDescription("scheduler down").asRuntimeException());
+
+        GatewayServiceImpl service = new GatewayServiceImpl(mock(FileStorage.class), schedulerClient, 65536);
+        StreamObserver<GatewaySubmitTaskResponse> responseObserver = mock(StreamObserver.class);
+
+        service.submitTask(GatewaySubmitTaskRequest.newBuilder()
+                        .setFileId("file-1")
+                        .setProcessorType("ocr")
+                        .build(),
+                responseObserver);
+
+        verify(responseObserver).onError(argThat(exception -> exception instanceof StatusRuntimeException
+                && ((StatusRuntimeException) exception).getStatus().getCode() == Status.Code.UNAVAILABLE));
+    }
+
+    @Test
+    void shouldRejectBlankSubmitTaskFields() {
+        SchedulerClient schedulerClient = mock(SchedulerClient.class);
+        GatewayServiceImpl service = new GatewayServiceImpl(mock(FileStorage.class), schedulerClient, 65536);
+        StreamObserver<GatewaySubmitTaskResponse> responseObserver = mock(StreamObserver.class);
+
+        service.submitTask(GatewaySubmitTaskRequest.newBuilder().setFileId("   ").setProcessorType("ocr").build(), responseObserver);
+        verify(responseObserver).onError(any(StatusRuntimeException.class));
+
+        reset(responseObserver);
+        service.submitTask(GatewaySubmitTaskRequest.newBuilder().setFileId("file-1").setProcessorType("   ").build(), responseObserver);
+        verify(responseObserver).onError(any(StatusRuntimeException.class));
+    }
 
     @Test
     void shouldUploadFileSuccessfully() throws Exception {
