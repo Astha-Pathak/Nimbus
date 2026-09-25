@@ -6,6 +6,7 @@ import com.example.nimbus.v1.WorkerAssignTaskResponse;
 import com.example.nimbus.v1.WorkerTaskAssignment;
 import com.example.nimbus.v1.WorkerServiceGrpc;
 import com.example.worker.processor.ChecksumProcessor;
+import com.example.worker.processor.CompressionProcessor;
 import com.example.worker.processor.ProcessorRegistry;
 import com.example.worker.processor.TaskProcessor;
 import io.grpc.Status;
@@ -122,6 +123,7 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
     private static ProcessorRegistry defaultProcessorRegistry() {
         ProcessorRegistry registry = new ProcessorRegistry();
         registry.register("CHECKSUM", new ChecksumProcessor());
+        registry.register("COMPRESSION", new CompressionProcessor());
         return registry;
     }
 

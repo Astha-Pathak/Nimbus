@@ -118,13 +118,38 @@ class WorkerServiceImplTest {
         service.assignTask(WorkerTaskAssignment.newBuilder()
                         .setTaskId("task-unsupported")
                         .setFileId("file-unsupported")
-                        .setProcessorType("COMPRESSION")
+                        .setProcessorType("UNKNOWN_PROCESSOR")
                         .setAttempt(0)
                         .build(),
                 observer);
 
         verify(observer).onError(any(StatusRuntimeException.class));
         assertFalse(service.getAssignedTasks().containsKey("task-unsupported"));
+    }
+
+    @Test
+    void shouldExecuteCompressionProcessorSuccessfully() {
+        TaskProcessor compressionProcessor = (fileId, configuration) -> TaskResultData.newBuilder()
+                .putValues("output_file_id", "compressed-file")
+                .putValues("original_size", "12")
+                .putValues("compressed_size", "4")
+                .putValues("compression_ratio", "0.33")
+                .build();
+        WorkerServiceImpl service = new WorkerServiceImpl(new ProcessorRegistry(Map.of("COMPRESSION", compressionProcessor)));
+        StreamObserver<WorkerAssignTaskResponse> observer = mock(StreamObserver.class);
+
+        service.assignTask(WorkerTaskAssignment.newBuilder()
+                        .setTaskId("task-compress")
+                        .setFileId("source-file")
+                        .setProcessorType("COMPRESSION")
+                        .setAttempt(0)
+                        .build(),
+                observer);
+
+        verify(observer).onNext(any(WorkerAssignTaskResponse.class));
+        verify(observer).onCompleted();
+        assertTrue(service.getExecutionResults().containsKey("task-compress"));
+        assertEquals("compressed-file", service.getExecutionResults().get("task-compress").getResult().getValuesMap().get("output_file_id"));
     }
 
     @Test

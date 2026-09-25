@@ -52,12 +52,28 @@ public class LocalFileStorage implements FileStorage {
     }
 
     @Override
+    public String createFile() throws IOException {
+        String fileId = UUID.randomUUID().toString();
+        Path targetPath = resolvePath(fileId);
+        Files.createDirectories(targetPath.getParent());
+        Files.createFile(targetPath);
+        return fileId;
+    }
+
+    @Override
     public InputStream open(String fileId) throws IOException {
         Path filePath = resolvePath(fileId);
         if (!Files.exists(filePath)) {
             throw new IOException("File not found: " + fileId);
         }
         return Files.newInputStream(filePath);
+    }
+
+    @Override
+    public OutputStream openForWrite(String fileId) throws IOException {
+        Path filePath = resolvePath(fileId);
+        Files.createDirectories(filePath.getParent());
+        return Files.newOutputStream(filePath, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
     }
 
     @Override
