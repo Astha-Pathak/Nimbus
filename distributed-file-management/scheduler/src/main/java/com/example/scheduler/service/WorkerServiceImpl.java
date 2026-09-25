@@ -1,5 +1,7 @@
 package com.example.scheduler.service;
 
+import com.example.nimbus.v1.WorkerHeartbeatRequest;
+import com.example.nimbus.v1.WorkerHeartbeatResponse;
 import com.example.nimbus.v1.WorkerRegisterRequest;
 import com.example.nimbus.v1.WorkerRegisterResponse;
 import com.example.nimbus.v1.WorkerServiceGrpc;
@@ -76,7 +78,8 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
                 host.trim(),
                 WorkerState.AVAILABLE,
                 now,
-                now);
+                now,
+                null);
 
         workerRegistry.register(workerInfo);
 
@@ -84,6 +87,44 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
                 .setWorkerId(workerInfo.workerId())
                 .setAccepted(true)
                 .setState(WorkerState.AVAILABLE)
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void heartbeat(WorkerHeartbeatRequest request,
+            StreamObserver<WorkerHeartbeatResponse> responseObserver) {
+        if (request == null) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Request must not be null")
+                    .asRuntimeException());
+            return;
+        }
+
+        String workerId = request.getWorkerId();
+        if (workerId == null || workerId.isBlank()) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Worker ID must not be blank")
+                    .asRuntimeException());
+            return;
+        }
+
+        WorkerInfo existing = workerRegistry.findById(workerId.trim()).orElse(null);
+        if (existing == null) {
+            responseObserver.onNext(WorkerHeartbeatResponse.newBuilder()
+                    .setAccepted(false)
+                    .build());
+            responseObserver.onCompleted();
+            return;
+        }
+
+        WorkerState reportedState = request.getStatus();
+        String currentTaskId = request.getCurrentTaskId();
+        Instant heartbeatAt = Instant.now();
+        workerRegistry.updateHeartbeat(existing.workerId(), reportedState, currentTaskId, heartbeatAt);
+
+        responseObserver.onNext(WorkerHeartbeatResponse.newBuilder()
+                .setAccepted(true)
                 .build());
         responseObserver.onCompleted();
     }

@@ -31,7 +31,8 @@ public class InMemoryWorkerRegistry implements WorkerRegistry {
                     worker.host(),
                     worker.state(),
                     worker.registeredAt(),
-                    worker.lastHeartbeatAt());
+                    worker.lastHeartbeatAt(),
+                    worker.currentTaskId());
         });
     }
 
@@ -48,5 +49,22 @@ public class InMemoryWorkerRegistry implements WorkerRegistry {
         return workers.values().stream()
                 .filter(worker -> worker.state() == WorkerState.AVAILABLE)
                 .toList();
+    }
+
+    @Override
+    public void updateHeartbeat(String workerId, WorkerState state, String currentTaskId, java.time.Instant heartbeatAt) {
+        if (workerId == null || workerId.isBlank()) {
+            return;
+        }
+
+        workers.computeIfPresent(workerId.trim(), (id, existing) -> new WorkerInfo(
+                existing.workerId(),
+                existing.supportedProcessorTypes(),
+                existing.capacity(),
+                existing.host(),
+                state == null ? existing.state() : state,
+                existing.registeredAt(),
+                heartbeatAt == null ? existing.lastHeartbeatAt() : heartbeatAt,
+                currentTaskId == null || currentTaskId.isBlank() ? null : currentTaskId.trim()));
     }
 }

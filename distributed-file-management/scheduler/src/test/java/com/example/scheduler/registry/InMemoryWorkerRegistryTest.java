@@ -99,4 +99,27 @@ class InMemoryWorkerRegistryTest {
         assertEquals(secondRegisteredAt, updated.registeredAt());
         assertEquals(secondHeartbeat, updated.lastHeartbeatAt());
     }
+
+    @Test
+    void shouldUpdateLastHeartbeatAndCurrentTaskIdOnHeartbeat() {
+        WorkerRegistry registry = new InMemoryWorkerRegistry();
+        Instant registeredAt = Instant.parse("2024-01-01T00:00:00Z");
+        registry.register(new WorkerInfo(
+                "worker-heartbeat",
+                List.of("ocr"),
+                2,
+                "host-heartbeat",
+                WorkerState.AVAILABLE,
+                registeredAt,
+                registeredAt,
+                "task-old"));
+
+        Instant heartbeatAt = Instant.parse("2024-01-01T00:01:00Z");
+        registry.updateHeartbeat("worker-heartbeat", WorkerState.BUSY, "task-new", heartbeatAt);
+
+        WorkerInfo updated = registry.findById("worker-heartbeat").orElseThrow();
+        assertEquals(WorkerState.BUSY, updated.state());
+        assertEquals(heartbeatAt, updated.lastHeartbeatAt());
+        assertEquals("task-new", updated.currentTaskId());
+    }
 }

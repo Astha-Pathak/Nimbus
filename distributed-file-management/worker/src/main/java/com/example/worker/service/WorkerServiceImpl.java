@@ -3,12 +3,19 @@ package com.example.worker.service;
 import com.example.nimbus.v1.TaskError;
 import com.example.nimbus.v1.TaskResultData;
 import com.example.nimbus.v1.WorkerAssignTaskResponse;
-import com.example.nimbus.v1.WorkerTaskAssignment;
+import com.example.nimbus.v1.WorkerHeartbeatRequest;
+import com.example.nimbus.v1.WorkerHeartbeatResponse;
+import com.example.nimbus.v1.WorkerRegisterRequest;
+import com.example.nimbus.v1.WorkerRegisterResponse;
 import com.example.nimbus.v1.WorkerServiceGrpc;
+import com.example.nimbus.v1.WorkerState;
+import com.example.nimbus.v1.WorkerTaskAssignment;
 import com.example.worker.processor.ChecksumProcessor;
 import com.example.worker.processor.CompressionProcessor;
 import com.example.worker.processor.ProcessorRegistry;
 import com.example.worker.processor.TaskProcessor;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
@@ -16,20 +23,43 @@ import net.devh.boot.grpc.server.service.GrpcService;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @GrpcService
 public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
 
+    private static final String DEFAULT_SCHEDULER_HOST = "localhost";
+    private static final int DEFAULT_SCHEDULER_PORT = 9090;
+
     private final Map<String, WorkerTaskAssignment> assignedTasks = new ConcurrentHashMap<>();
     private final Map<String, TaskExecutionResult> executionResults = new ConcurrentHashMap<>();
     private final ProcessorRegistry processorRegistry;
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor();
+    private final String workerId;
+    private final String host;
+    private final String schedulerHost;
+    private final int schedulerPort;
+    private final long heartbeatIntervalMs;
+    private volatile String currentTaskId;
 
     public WorkerServiceImpl() {
-        this(defaultProcessorRegistry());
+        this(defaultProcessorRegistry(), null, null, DEFAULT_SCHEDULER_HOST, DEFAULT_SCHEDULER_PORT, 5000L);
     }
 
     public WorkerServiceImpl(ProcessorRegistry processorRegistry) {
+        this(processorRegistry, null, null, DEFAULT_SCHEDULER_HOST, DEFAULT_SCHEDULER_PORT, 5000L);
+    }
+
+    public WorkerServiceImpl(ProcessorRegistry processorRegistry, String workerId, String host, String schedulerHost, int schedulerPort, long heartbeatIntervalMs) {
         this.processorRegistry = processorRegistry == null ? defaultProcessorRegistry() : processorRegistry;
+        this.workerId = workerId == null || workerId.isBlank() ? "worker-local" : workerId.trim();
+        this.host = host == null || host.isBlank() ? "localhost" : host.trim();
+        this.schedulerHost = schedulerHost == null || schedulerHost.isBlank() ? DEFAULT_SCHEDULER_HOST : schedulerHost.trim();
+        this.schedulerPort = schedulerPort <= 0 ? DEFAULT_SCHEDULER_PORT : schedulerPort;
+        this.heartbeatIntervalMs = heartbeatIntervalMs > 0 ? heartbeatIntervalMs : 5000L;
+        startHeartbeatLoop();
     }
 
     public Map<String, WorkerTaskAssignment> getAssignedTasks() {
@@ -38,6 +68,48 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
 
     public Map<String, TaskExecutionResult> getExecutionResults() {
         return executionResults;
+    }
+
+    public String getCurrentTaskId() {
+        return currentTaskId;
+    }
+
+    public void setCurrentTaskId(String currentTaskId) {
+        this.currentTaskId = currentTaskId == null || currentTaskId.isBlank() ? null : currentTaskId.trim();
+    }
+
+    @Override
+    public void registerWorker(WorkerRegisterRequest request,
+            StreamObserver<WorkerRegisterResponse> responseObserver) {
+        if (request == null) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Request must not be null")
+                    .asRuntimeException());
+            return;
+        }
+
+        responseObserver.onNext(WorkerRegisterResponse.newBuilder()
+                .setWorkerId(request.getWorkerId())
+                .setAccepted(true)
+                .setState(WorkerState.AVAILABLE)
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void heartbeat(WorkerHeartbeatRequest request,
+            StreamObserver<WorkerHeartbeatResponse> responseObserver) {
+        if (request == null) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("Request must not be null")
+                    .asRuntimeException());
+            return;
+        }
+
+        responseObserver.onNext(WorkerHeartbeatResponse.newBuilder()
+                .setAccepted(true)
+                .build());
+        responseObserver.onCompleted();
     }
 
     @Override
@@ -97,13 +169,38 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
             return;
         }
 
+        setCurrentTaskId(taskId.trim());
         TaskExecutionResult executionResult = executeTask(taskId.trim(), fileId.trim(), normalizedProcessorType, request.getConfiguration());
         executionResults.put(taskId.trim(), executionResult);
+        setCurrentTaskId(null);
 
         responseObserver.onNext(WorkerAssignTaskResponse.newBuilder()
                 .setAccepted(true)
                 .build());
         responseObserver.onCompleted();
+    }
+
+    private void startHeartbeatLoop() {
+        heartbeatScheduler.scheduleAtFixedRate(() -> {
+            try {
+                ManagedChannel channel = ManagedChannelBuilder.forAddress(schedulerHost, schedulerPort)
+                        .usePlaintext()
+                        .build();
+                try {
+                    WorkerServiceGrpc.WorkerServiceBlockingStub stub = WorkerServiceGrpc.newBlockingStub(channel);
+                    WorkerHeartbeatRequest request = WorkerHeartbeatRequest.newBuilder()
+                            .setWorkerId(workerId)
+                            .setStatus(WorkerState.AVAILABLE)
+                            .setCurrentTaskId(currentTaskId == null ? "" : currentTaskId)
+                            .build();
+                    stub.heartbeat(request);
+                } finally {
+                    channel.shutdown();
+                }
+            } catch (Exception ignored) {
+                // Heartbeat failures are intentionally ignored for this step.
+            }
+        }, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS);
     }
 
     private TaskExecutionResult executeTask(String taskId, String fileId, String processorType, com.example.nimbus.v1.TaskConfiguration configuration) {

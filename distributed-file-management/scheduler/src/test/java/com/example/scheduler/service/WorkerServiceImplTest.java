@@ -1,5 +1,7 @@
 package com.example.scheduler.service;
 
+import com.example.nimbus.v1.WorkerHeartbeatRequest;
+import com.example.nimbus.v1.WorkerHeartbeatResponse;
 import com.example.nimbus.v1.WorkerRegisterRequest;
 import com.example.nimbus.v1.WorkerRegisterResponse;
 import com.example.nimbus.v1.WorkerState;
@@ -182,6 +184,52 @@ class WorkerServiceImplTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void shouldAcceptKnownWorkerHeartbeatAndUpdateStateAndTaskId() {
+        WorkerRegistry registry = new InMemoryWorkerRegistry();
+        WorkerServiceImpl service = new WorkerServiceImpl(registry);
+        StreamObserver<WorkerHeartbeatResponse> responseObserver = mock(StreamObserver.class);
+
+        service.registerWorker(WorkerRegisterRequest.newBuilder()
+                        .setWorkerId("worker-heartbeat")
+                        .addSupportedProcessorTypes("ocr")
+                        .setCapacity(2)
+                        .setHost("host-heartbeat")
+                        .build(),
+                mock(StreamObserver.class));
+
+        service.heartbeat(WorkerHeartbeatRequest.newBuilder()
+                        .setWorkerId("worker-heartbeat")
+                        .setStatus(WorkerState.BUSY)
+                        .setCurrentTaskId("task-42")
+                        .build(),
+                responseObserver);
+
+        verify(responseObserver).onNext(argThat(response -> response.getAccepted()));
+        verify(responseObserver).onCompleted();
+
+        WorkerInfo updated = registry.findById("worker-heartbeat").orElseThrow();
+        assertEquals(WorkerState.BUSY, updated.state());
+        assertEquals("task-42", updated.currentTaskId());
+        assertNotNull(updated.lastHeartbeatAt());
+    }
+
+    @Test
+    void shouldRejectUnknownWorkerHeartbeat() {
+        WorkerServiceImpl service = new WorkerServiceImpl(new InMemoryWorkerRegistry());
+        StreamObserver<WorkerHeartbeatResponse> responseObserver = mock(StreamObserver.class);
+
+        service.heartbeat(WorkerHeartbeatRequest.newBuilder()
+                        .setWorkerId("missing-worker")
+                        .setStatus(WorkerState.AVAILABLE)
+                        .setCurrentTaskId("task-99")
+                        .build(),
+                responseObserver);
+
+        verify(responseObserver).onNext(argThat(response -> !response.getAccepted()));
+        verify(responseObserver).onCompleted();
     }
 
     private static WorkerRegisterResponse responseCaptor(StreamObserver<WorkerRegisterResponse> responseObserver) {
