@@ -49,11 +49,12 @@ public class SchedulerTaskAssignmentService {
             return Optional.empty();
         }
 
+        int nextAttemptCount = task.getAttemptCount() + 1;
         WorkerTaskAssignment assignment = WorkerTaskAssignment.newBuilder()
                 .setTaskId(task.getTaskId())
                 .setFileId(task.getFileId())
                 .setProcessorType(task.getProcessorType())
-                .setAttempt(task.getAttemptCount())
+                .setAttempt(nextAttemptCount)
                 .setMaxRetries(task.getMaxRetries())
                 .setConfiguration(toTaskConfiguration(task.getConfiguration()))
                 .build();
@@ -69,6 +70,8 @@ public class SchedulerTaskAssignmentService {
             return Optional.empty();
         }
 
+        task.setAttemptCount(nextAttemptCount);
+        task.setLifecycle(com.example.scheduler.domain.TaskLifecycle.RUNNING);
         task.setAssignedWorkerId(selectedWorker.get().workerId());
         taskRepository.save(task);
         return Optional.of(task);

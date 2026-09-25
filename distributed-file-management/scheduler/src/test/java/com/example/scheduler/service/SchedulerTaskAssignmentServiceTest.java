@@ -121,8 +121,9 @@ class SchedulerTaskAssignmentServiceTest {
                 assignment.getTaskId().equals(task.getTaskId())
                         && assignment.getFileId().equals("file-4")
                         && assignment.getProcessorType().equals("ocr")
-                        && assignment.getAttempt() == 0
+                        && assignment.getAttempt() == 1
                         && assignment.getMaxRetries() == 3
                         && assignment.hasConfiguration()));
+        assertEquals(1, task.getAttemptCount());
     }
 }
