@@ -97,6 +97,7 @@
         <module>gateway</module>
         <module>scheduler</module>
         <module>worker</module>
+        <module>demo</module>
     </modules>
 
 </project>

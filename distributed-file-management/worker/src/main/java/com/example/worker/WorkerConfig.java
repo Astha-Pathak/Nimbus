@@ -17,6 +17,9 @@ public class WorkerConfig {
     @Value("${scheduler.port:9090}")
     private int schedulerPort;
 
+    @Value("${worker.id:worker-local}")
+    private String workerId;
+
     @Value("${worker.heartbeat.interval-ms:5000}")
     private long heartbeatIntervalMs;
 
@@ -30,6 +33,6 @@ public class WorkerConfig {
 
     @Bean
     public WorkerServiceImpl workerServiceImpl(ProcessorRegistry registry) {
-        return new WorkerServiceImpl(registry, "worker-local", "localhost", schedulerHost, schedulerPort, heartbeatIntervalMs);
+        return new WorkerServiceImpl(registry, workerId, "localhost", schedulerHost, schedulerPort, heartbeatIntervalMs);
     }
 }
