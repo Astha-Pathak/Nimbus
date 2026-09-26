@@ -48,6 +48,16 @@
             <groupId>com.example</groupId>
             <artifactId>proto</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>gateway</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>worker</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

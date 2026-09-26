@@ -7,11 +7,17 @@ import com.example.scheduler.domain.WorkerInfo;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
+import org.springframework.stereotype.Service;
 
+@Service
 public class WorkerGrpcClient implements WorkerClient {
 
     private final ManagedChannel channel;
     private final WorkerServiceGrpc.WorkerServiceBlockingStub blockingStub;
+
+    public WorkerGrpcClient() {
+        this("localhost", 9090);
+    }
 
     public WorkerGrpcClient(String host, int port) {
         String targetHost = host == null || host.isBlank() ? "localhost" : host.trim();

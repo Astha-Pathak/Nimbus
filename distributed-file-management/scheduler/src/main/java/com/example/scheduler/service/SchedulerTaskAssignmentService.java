@@ -8,10 +8,12 @@ import com.example.scheduler.domain.WorkerInfo;
 import com.example.scheduler.registry.WorkerRegistry;
 import com.example.scheduler.repository.TaskRepository;
 import com.google.protobuf.util.JsonFormat;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 
+@Service
 public class SchedulerTaskAssignmentService {
 
     private final TaskRepository taskRepository;

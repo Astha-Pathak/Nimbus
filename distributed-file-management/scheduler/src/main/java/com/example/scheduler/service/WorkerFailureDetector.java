@@ -5,6 +5,7 @@ import com.example.scheduler.domain.WorkerInfo;
 import com.example.scheduler.registry.WorkerRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,7 @@ public class WorkerFailureDetector {
     private final WorkerTaskReassignmentService reassignmentService;
     private final Set<String> warnedWorkers = ConcurrentHashMap.newKeySet();
 
+    @Autowired
     public WorkerFailureDetector(WorkerRegistry workerRegistry,
             @Value("${worker.heartbeat.timeout-ms:15000}") long heartbeatTimeoutMs) {
         this(workerRegistry, Clock.systemUTC(), Duration.ofMillis(heartbeatTimeoutMs), null);

@@ -3,12 +3,14 @@ package com.example.scheduler.service;
 import com.example.nimbus.v1.WorkerState;
 import com.example.scheduler.domain.Task;
 import com.example.scheduler.domain.WorkerInfo;
+import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+@Component
 public class RoundRobinSchedulingStrategy implements SchedulingStrategy {
 
     private final AtomicInteger nextIndex = new AtomicInteger(0);

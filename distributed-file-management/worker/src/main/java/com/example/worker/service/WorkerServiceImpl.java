@@ -62,6 +62,10 @@ public class WorkerServiceImpl extends WorkerServiceGrpc.WorkerServiceImplBase {
         startHeartbeatLoop();
     }
 
+    public void shutdown() {
+        heartbeatScheduler.shutdownNow();
+    }
+
     public Map<String, WorkerTaskAssignment> getAssignedTasks() {
         return assignedTasks;
     }
