@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+FROM maven:3.9.9-eclipse-temurin-21 AS build
+
+WORKDIR /workspace
+
+COPY pom.xml .
+COPY proto/pom.xml ./proto/
+COPY common/pom.xml ./common/
+COPY gateway/pom.xml ./gateway/
+COPY scheduler/pom.xml ./scheduler/
+COPY worker/pom.xml ./worker/
+
+RUN mvn -q -pl proto,common -am install -DskipTests
+
+COPY proto/src ./proto/src
+COPY common/src ./common/src
+COPY worker/src ./worker/src
+
+RUN mvn -q -pl worker -am package -DskipTests
+
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+COPY --from=build /workspace/worker/target/worker-0.1.0-SNAPSHOT.jar /app/worker.jar
+
+RUN mkdir -p /app/data/files && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 9091
+
+ENTRYPOINT ["java", "-jar", "/app/worker.jar"]

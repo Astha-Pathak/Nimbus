@@ -1,0 +1,79 @@
+version: "3.8"
+
+services:
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.scheduler
+    container_name: nimbus-scheduler
+    ports:
+      - "9090:9090"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - spring.datasource.url=jdbc:h2:file:/app/data/scheduler/tasks;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    volumes:
+      - scheduler-data:/app/data/scheduler
+    networks:
+      - nimbus-net
+    healthcheck:
+      test: ["CMD", "java", "-jar", "/app/scheduler.jar", "--spring.profiles.active=docker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: nimbus-worker
+    ports:
+      - "9091:9091"
+    environment:
+      - scheduler.host=scheduler
+      - scheduler.port=9090
+      - SPRING_PROFILES_ACTIVE=docker
+    volumes:
+      - shared-files:/app/data/files
+    depends_on:
+      - scheduler
+    networks:
+      - nimbus-net
+    healthcheck:
+      test: ["CMD", "java", "-jar", "/app/worker.jar", "--spring.profiles.active=docker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: nimbus-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - scheduler.grpc.host=scheduler
+      - scheduler.grpc.port=9090
+    volumes:
+      - shared-files:/app/data/files
+    depends_on:
+      - scheduler
+    networks:
+      - nimbus-net
+    healthcheck:
+      test: ["CMD", "java", "-jar", "/app/gateway.jar", "--spring.profiles.active=docker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  scheduler-data:
+  shared-files:
+
+networks:
+  nimbus-net:
+    driver: bridge
